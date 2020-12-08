@@ -9,7 +9,7 @@ The following is a sample of products created during the _"Data Visualization an
 
 ## Project 01
 
-In the `project_01/` folder you can find a small project featuring a textual analysis of the Federalist Papers written by Alexander Hamilton, James Madison, and John Jay. 
+In the `project_01/` folder you can find a small project featuring a textual analysis of the Federalist Papers written by Alexander Hamilton, James Madison, and John Jay. This textual analysis served as a test subject for some data preprocessing that would need to be done for my thesis. Visualizations here were built with a consistent and simplistic theme.
 
 **Sample data visualization:** 
 

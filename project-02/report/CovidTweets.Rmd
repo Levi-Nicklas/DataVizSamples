@@ -1,0 +1,599 @@
+---
+title: "Covid Twitter"
+author: "Levi C. Nicklas"
+date: "11/18/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE, message=FALSE}
+# Knit Settings.
+knitr::opts_chunk$set(echo = TRUE)
+
+# Libraries.
+library(tidyverse)
+library(here)
+library(tidytext)
+library(lubridate)
+library(sf)
+library(maps)
+library(plotly)
+
+set.seed(23)
+
+# Data Import.
+covid_tweets <- readr::read_csv(here::here("data/covid19_tweets.csv"))
+covid_deaths <- readr::read_csv(here::here("data/covid_deaths_by_state.csv"), skip = 2)
+
+# Data Links
+# https://www.kaggle.com/gpreda/covid19-tweets
+# https://covid.cdc.gov/covid-data-tracker/#cases_deathsper100k
+
+# Goals:
+# Interactive plot.
+# Spacial viz.
+# viz of model.
+```
+
+# Introduction
+
+Through the use of sentiment analysis and GIS methods, I examine the relationship between COVID-19 and twitter sentiment in the 50 USA states over July and August. After this, I take the chance to develop a preliminary framework for clustering text graph kernel values in 1 dimension. This will serve as an experiment for the efficacy of these methods, before I commit to devoting more time to them in my thesis. 
+
+## Data Sources:
+
+- https://www.kaggle.com/gpreda/covid19-tweets
+
+- https://covid.cdc.gov/covid-data-tracker/#cases_deathsper100k
+
+
+
+# Data Clean and Reformat
+
+Here are the column headers. What I'm interested in is doing some analysis of the user location, to assess tweet sentiment in relation to COVID-19 values as reported by Johns Hopkins University.
+```{r}
+colnames(covid_tweets)
+```
+
+But look at the `user_location`:
+
+```{r}
+set.seed(25)
+sample(covid_tweets$user_location, 20)
+```
+
+Kinda not that great, there are records at the city level, the country level, and stuff like `"Somewhere in my head"`. So I need to clean this up.
+ 
+```{r}
+usa_states <- data.frame(
+  stringsAsFactors = FALSE,
+                         Name = c("Alabama",
+                                  "Alaska","Arizona","Arkansas",
+                                  "California","Colorado","Connecticut","Delaware",
+                                  "Florida","Georgia","Hawaii","Idaho",
+                                  "Illinois","Indiana","Iowa","Kansas","Kentucky",
+                                  "Louisiana","Maine","Maryland",
+                                  "Massachusetts","Michigan","Minnesota","Mississippi",
+                                  "Missouri","Montana",
+                                  "Nebraska","Nevada","New Hampshire",
+                                  "New Jersey","New Mexico","New York",
+                                  "North Carolina","North Dakota","Ohio","Oklahoma",
+                                  "Oregon","Pennsylvania","Rhode Island",
+                                  "South Carolina","South Dakota","Tennessee",
+                                  "Texas","Utah","Vermont","Virginia","Washington",
+                                  "West Virginia","Wisconsin","Wyoming"),
+                 Abbreviation = c("AL",
+                                  "AK","AZ","AR","CA","CO","CT","DE","FL",
+                                  "GA","HI","ID","IL","IN","IA","KS","KY",
+                                  "LA","ME","MD","MA","MI","MN","MS",
+                                  "MO","MT",
+                                  "NE","NV","NH","NJ","NM","NY","NC","ND",
+                                  "OH","OK","OR","PA","RI","SC","SD","TN",
+                                  "TX","UT","VT","VA","WA","WV","WI",
+                                  "WY"))
+```
+ 
+Using this data frame of states' names, and their respective abbreviations, I can parse the `user_location` to find which US state (or lack of) the tweet originated from. 
+
+First, lets see if there are even any tweets from the great state of Alabama:
+```{r}
+stringr::str_detect(covid_tweets$user_location, pattern = usa_states$Name[1]) %>% 
+        sum(na.rm = T)
+```
+
+Okay, so that worked. There are at least 109 just based on parsing the strings for "Alabama". We can do better by also searching for the states abbreviations too. We can just loop over every state and its abbreviation. 
+
+```{r}
+# Allocate Storage.
+results <- as.data.frame(matrix(rep(0,nrow(covid_tweets)*50), 
+                  ncol = 50,
+                  nrow = nrow(covid_tweets)))
+colnames(results) <- usa_states$Name
+
+for(i in 1:50){
+       boolean_tmp_a <- stringr::str_detect(covid_tweets$user_location, 
+                                           pattern = usa_states$Name[i])
+       boolean_tmp_b <- stringr::str_detect(covid_tweets$user_location, 
+                                           pattern = usa_states$Abbreviation[i])
+       boolean_tmp <- boolean_tmp_a | boolean_tmp_b
+       
+       results[,i] <- boolean_tmp
+}
+```
+
+Now we have a **big** data frame with 50 columns that contain a boolean value describing if the state name _or_ the state abbreviation was found. Perhaps if we were feeling more ambitious and had a list of the US cities, we could parse those, but we have neither ambition to spare nor a list handy-- we shall proceed.
+
+We can remove all of the tweets that didn't find get a result from parsing, and then assign the state as the location label. 
+
+```{r}
+# Build function to Undo the one hot encoding.
+un_one_hot <- function(state_row){
+  # turn into a vector.
+  tmp <- flatten(state_row) %>% t() %>% as.vector() %>% unlist()
+  
+  # Error handle.
+  if(sum(tmp, na.rm = T) == 1){
+    # Get the state name.
+    usa_states$Name[tmp] %>% 
+      return()
+  } else if(sum(tmp, na.rm = T) > 1) {
+    "multiple_states" %>% 
+      return()
+  } else if(sum(tmp, na.rm = T)) {
+    NA %>% 
+      return()
+  } else {
+    NA %>% 
+      return()
+  }
+}
+
+# Allocate space.
+results2 <- rep(0,nrow(results))
+
+# Loop over data.
+for(i in 1:nrow(results)){
+  results2[i] <- un_one_hot(results[i,])
+}
+
+# Reformat
+results2 <- results2 %>% as.data.frame() 
+colnames(results2) <- c("state")
+
+# Grab located Tweets!!!
+covid_tweets$assigned_location <- results2$state
+covid_tweets_loc <- covid_tweets[!is.na(results2$state),] 
+
+head(covid_tweets_loc)
+```
+
+Great, now that the tweets that we assigned a location tag are in a dataframe, `covid_tweets_loc`, we can begin analysis at a statewide level.
+
+```{r, message=F}
+bing_sent <- get_sentiments(lexicon = "bing")
+
+covid_sentiment <- covid_tweets_loc %>% 
+  unnest_tokens(word, text,token = "words") %>% 
+  anti_join(stop_words) %>% 
+  inner_join(bing_sent)
+
+covid_sentiment %>% 
+  group_by(sentiment) %>% 
+  count()
+```
+ 
+ Now we have the sentiments bound to the words from the tweets, we have $34,475$ words left to work with! 
+ 
+# Mapping
+ 
+ I picked to work with these data sets to make a map where we can compare cases and the sentiments of the twitter users in that area, so let's make it happen!
+ 
+```{r}
+### Working Example ###
+# state_shapes <- map_data("state")
+# 
+# ggplot(state_shapes, aes(x = long, y = lat, group = group)) +
+#   geom_polygon(fill="dark blue", colour = "white")+
+#   theme_void()
+
+### Additional Mapping ###
+state_shapes <- map_data("state")
+
+state_sentiments <- covid_sentiment %>% 
+  group_by(assigned_location, sentiment) %>% 
+  count() %>% 
+  pivot_wider(names_from = sentiment, values_from = n) %>% 
+  mutate(net_sentiment = positive - negative,
+         assigned_location = stringr::str_to_lower(assigned_location))
+
+left_join(state_shapes, state_sentiments, by = c("region" = "assigned_location")) %>% 
+  ggplot(aes(x = long, y = lat, group = group)) +
+  geom_polygon(aes(fill = net_sentiment), color = "white") +
+  theme_void() +
+  scale_fill_viridis_b() +
+  ggtitle("State Net Sentiments on Twitter: COVID-19 related Tweets")
+```
+ 
+ Here a basic map is produced. This map shows the _net sentiment_ by state. The net sentiment is simply calculated as $count_{positive} - count_{negative}$ for tweets by region. We see that California, New York, Florida, Texas, Georgia, and Washington have the largest net sentiments; we don't want to fall into the trap of not adjusting by population. We address this in later iteration of the map. I'd like to examine the change in sentiment over time. This could be done with a bunch of time series line plots, but we all love maps. 
+ 
+The final map I want needs to be the ratio of sentiment to covid cases for a state, after adjusting for population. We have data on from Twitter about COVID-19, and the case numbers for a state, but we still need the populations. We can get state populations from the Census Bureau, [here](https://www.census.gov/data/datasets/time-series/demo/popest/2010s-state-total.html#par_textimage_500989927).
+
+
+```{r}
+# Read in Data
+us_census <- cbind(readxl::read_xlsx(here::here("data/nst-est2019-01.xlsx"),
+                               range = "A9:A60"),
+                   readxl::read_xlsx(here::here("data/nst-est2019-01.xlsx"),
+                               range = "M9:M60")
+              )
+
+# Clean Data
+colnames(us_census) <- c("states", "population")
+us_census <- us_census %>% 
+  mutate(states = stringr::str_remove(states, ".")) %>% 
+  mutate(states = stringr::str_to_lower(states))
+```
+
+
+Since COVID-19 just started in 2020, I am using the 2019 Census Bureau estimates for population to adjust the tweets/cases values. Now we just need to prep our data set that will be mapped.
+
+```{r}
+covid_deaths <- covid_deaths %>% 
+  mutate(state = stringr::str_to_lower(`State/Territory`),
+         deaths = `Total Deaths`) %>% 
+  select(state, deaths)
+
+
+my_map_data <- left_join(state_shapes, state_sentiments, by = c("region" = "assigned_location")) %>% 
+  left_join(covid_deaths, by = c("region" = "state")) %>% 
+  left_join(us_census, by = c("region" = "states")) %>% 
+  mutate(sentiment_deaths = net_sentiment*deaths/(population)^2)
+
+head(my_map_data)
+```
+
+Now we have composed an arbitrary metric of $\frac{sentiment_{state} * deaths_{state}}{population_{state}^2}$ to measure the relationship between sentiment and COVID-19 deaths in a given state, while adjusting for population.
+
+First, I want to make a static map like the previous one!
+
+```{r}
+p <- my_map_data %>% 
+  ggplot(aes(x = long, y = lat, group = group, fill = sentiment_deaths)) +
+    geom_polygon(color = "white") +
+    theme_void() +
+    scale_fill_viridis_b() +
+  labs(title = "Twitter Sentiment and COVID-19 Deaths",
+        subtitle = "Metric: sentiment * deaths / (population^2)",
+        fill = "metric") 
+p
+```
+
+This is a nice map. We see now that population isn't the driving factor of having a state stand out anymore. We see that Georgia, NJ, New York, Massachusetts, Washington, and North Dakota have the strongest score on the metric.
+
+Before we close up the section on mapping Tweets and COVID-19 deaths, we can examine the temporal aspect of this metric. To do this I am going to check the negative sentiment in a state, adjusted for population, over time. I'll lump all the tweets into a month of 2020, and then we can add a slider to examine the sentiment in a state at some point throughout the year.
+
+
+```{r}
+state_sentiments_time <- covid_sentiment %>% 
+  mutate(tweet_month = lubridate::month(date)) %>% 
+  group_by(assigned_location, tweet_month ,sentiment) %>% 
+  count() %>% 
+  pivot_wider(names_from = c(tweet_month,sentiment), values_from = n) %>% 
+  mutate(Jul_net_sentiment = `7_positive` - `7_negative`,
+         Aug_net_sentiment = `8_positive` - `8_negative`,
+         assigned_location = stringr::str_to_lower(assigned_location))
+
+
+final_map_data <- left_join(state_shapes, state_sentiments_time, by = c("region" = "assigned_location")) %>% 
+  left_join(us_census, by = c("region" = "states")) %>% 
+  mutate(Jul_sentiment = Jul_net_sentiment/population,
+         Aug_sentiment = Aug_net_sentiment/population) %>% 
+  pivot_longer(cols = c(Jul_sentiment, Aug_sentiment))
+
+p2 <- final_map_data %>% 
+  ggplot(aes(x = long, y = lat, group = group, fill = value, frame = name)) +
+    geom_polygon(color = "white") +
+    theme_void() +
+    scale_fill_viridis_b() +
+  labs(title = "Twitter Sentiment and COVID-19 Deaths",
+        subtitle = "Metric: sentiment * deaths / (population^2)",
+        fill = "metric")  
+
+ggplotly(p2)
+
+```
+
+In the plot we see that sentiment gets a little more extreme in the August sentiment. Since the data I have is only from July and August, there are less frames in my interactive plot than I'd like. 
+
+Now we can pivot off of maps and model some of this text data.
+
+# Modeling
+
+```{r clean up, include=F}
+# Clean out some memory, and keep workspace tidy.
+rm(p, p2, us_census, usa_states, state_sentiments, state_sentiments_time, 
+   my_map_data, covid_deaths, final_map_data, state_shapes, results, results2)
+```
+
+For my model, I will represent each tweet as a skipgram graph and then compare these graphs utilizing a graph kernel from the `{graphkernels}` package. The kernels here will produce a similarity matrix, where the value $k_{i,j}$ represents the kernel's similarity measure between graphs $i$ and $j$. As my model then, I will choose a tweet of interest, assess the similarity of other tweets using kernel density estimation.
+
+```{r, message = F, warning = F}
+library(graphkernels)
+# FYI: THIS TAKES A LONG TIME TO RUN.
+
+# Get a sample of covid_tweets
+covid_tweets <- sample_n(covid_tweets, 1000, replace = F)
+
+covid_tweets$user_id <- seq(1,nrow(covid_tweets))
+
+
+# covid_bigrams <- tidytext::unnest_tokens(covid_tweets, 
+#                         output = "words" ,
+#                         input = text, 
+#                         token = "ngrams",
+#                         n = 2) %>%  
+#   select(user_id, date, words)
+
+# Allocate Space
+covid_graphs <- list()
+
+for(i in 1:nrow(covid_tweets)){
+  temp_df <- tidytext::unnest_tokens(covid_tweets, 
+                        output = "words" ,
+                        input = text, 
+                        token = "ngrams",
+                        n = 2) %>%  
+    dplyr::select(user_id, date, words) %>%  
+    dplyr::filter(user_id == i) %>% 
+    tidyr::separate(words, c("word1", "word2"), sep = " ") %>% 
+    tidyr::drop_na() %>% 
+    group_by(word1, word2) %>% 
+    count() %>% 
+    igraph::graph_from_data_frame()
+  
+  if(i %% 100 == 0){
+    print(paste0("On Tweet: ", i))
+  }
+  
+  covid_graphs[[i]] <- temp_df
+}
+
+#beepr::beep(sound = 3) 
+```
+
+Compute the edge histogram kernel on all 1000 tweets.
+
+```{r, warning = F}
+covid_kernel <- graphkernels::CalculateEdgeHistKernel(covid_graphs[1:1000])
+```
+
+We can view the distribution of the kernel similarity scores using `geom_density()` from `{ggplot2}`. This plot uses the `density()` function in `R`. By using a bin width that will produce a number of local minima/maxima, we can create potential clusters in one dimension by just using calculus to find the cluster boundaries for a single graph. The highest scoring cluster will be those tweets that are most similar to the tweet of concern. Below you can get an idea of what I mean. I allowed a bin width of 9, which will produce a number of local minima that we can locate and create breaks in our number line for what will be hard clustering. 
+
+```{r}
+covid_kernel[12,] %>% 
+  as.data.frame() %>% 
+  ggplot(aes(x = `.`))+
+  geom_density(color = "red", fill = "red", alpha = 0.5,
+               bw = 9)
+```
+
+The above plot was just a `ggplot2` layer, `geom_density()` which operates on the `density()` function from `{stats}`. We can generate a series of points with the function to discritize the curve so we can locate minima.
+
+```{r}
+# Calculate Density Curve.
+my_density <- density(covid_kernel[12,], bw = 9, n = 128)
+
+# Plot points.
+cbind(my_density$x,my_density$y) %>% 
+  as.data.frame() %>% 
+  ggplot(aes(V1,V2))+
+  geom_point()+
+  geom_line() +
+  theme_light()
+```
+
+Above, we see $128$ points forming the estimated density curve, with a bin width of $9$. Using this, we can add more points ($512$ or $1024$) to discritize the domain to a finer granularity, and better capture the local minima. So here, we can now approximate the derivative, and then find the roots, and thus fending the local minima/maxima.
+
+```{r}
+my_density <- density(covid_kernel[12,], bw = 9, n = 1024)
+my_density_curve <- data.frame(x = my_density$x,
+                               y = my_density$y)
+
+# Calculate Derivatives.
+my_density_curve %>% 
+  mutate(x_prime = lag(x),
+         y_prime = lag(y)) %>% 
+  mutate(deriv = (y_prime - y)/(x_prime - x)) %>% 
+  drop_na() %>% 
+  ggplot(aes(x, deriv))+
+  geom_point()+
+  geom_line() +
+  geom_hline(yintercept = 0, lty = 2, color = "red")+
+  theme_light()
+```
+
+Above is the plot of the approximated derivative of the density curve. We can locate a local/minima or maxima when the derivative curve crosses $0$. 
+
+```{r}
+my_density_curve %>% 
+  mutate(x_prime = lag(x),
+         y_prime = lag(y)) %>% 
+  mutate(deriv = (y_prime - y)/(x_prime - x)) %>% 
+  drop_na() %>% 
+  select(x,y,deriv) %>% 
+  mutate(is_minmax = ifelse(sign(deriv) != sign(lag(deriv)),
+                            "root",
+                            "nonroot")) %>% 
+  filter(is_minmax == "root")
+```
+
+Here we find the roots. Let's plot the roots.
+
+```{r}
+my_density_curve %>% 
+  mutate(x_prime = lag(x),
+         y_prime = lag(y)) %>% 
+  mutate(deriv = (y_prime - y)/(x_prime - x)) %>% 
+  drop_na() %>% 
+  select(x,y,deriv) %>% 
+  mutate(is_minmax = ifelse((sign(deriv) != sign(lag(deriv))) | 
+                              sign(deriv) != sign(lead(deriv)),
+                            "root",
+                            "nonroot")) %>% 
+  ggplot(aes(x, deriv))+
+  geom_line()+
+  geom_point(aes(color = is_minmax)) +
+  scale_color_brewer(palette = "Set1") +
+  theme_light()
+
+my_density_curve %>% 
+  mutate(x_prime = lag(x),
+         y_prime = lag(y)) %>% 
+  mutate(deriv = (y_prime - y)/(x_prime - x)) %>% 
+  drop_na() %>% 
+  select(x,y,deriv) %>% 
+  mutate(is_minmax = ifelse((sign(deriv) != sign(lag(deriv))) | 
+                              sign(deriv) != sign(lead(deriv)),
+                            "root",
+                            "nonroot")) %>% 
+  ggplot(aes(x, y))+
+  geom_line()+
+  geom_point(aes(color = is_minmax), alpha = 0.5) +
+  scale_color_brewer(palette = "Set1") +
+  theme_light()
+
+```
+
+Above, we see the roots lie between two consecutive blue points on the derivative plot. Since I don't have the actual density function, we can just estimate the actual zero point with the mean of the two points that flank the point with a derivative of zero. By checking if the derivative is positive or negative on the preceding and subsequent points. For example, a zero derivative point with a preceding positive derivative and subsequent negative derivative is a local maximum; a negative derivative, a zero derivative, and a positive derivative represents a local minimum. 
+
+```{r}
+# Gather my loacl min/max points.
+my_roots <- my_density_curve %>% 
+  mutate(x_prime = lag(x),
+         y_prime = lag(y)) %>% 
+  mutate(deriv = (y_prime - y)/(x_prime - x)) %>% 
+  drop_na() %>% 
+  select(x,y,deriv) %>% 
+  mutate(is_minmax = ifelse((sign(deriv) != sign(lag(deriv))) | 
+                              sign(deriv) != sign(lead(deriv)),
+                            "root",
+                            "nonroot"))  %>% 
+  filter(is_minmax == "root")
+
+## Make a function to work on the points.
+
+check_minmax <- function(derivs){
+  # Pass derivs as a vector of length 2,
+  # with the first deriv in dervis[1]
+  # and the second deriv in derivs[2].
+  
+  first_deriv <- derivs[1]
+  second_deriv <- derivs[2]
+  
+  if((sign(first_deriv) > 0) & (sign(second_deriv) < 0)){
+    return("local_max")
+  } else if((sign(first_deriv) < 0) & (sign(second_deriv) > 0)){
+    return("local_min")
+  } else {
+    return("error")
+  }
+}
+
+# check_minmax(my_roots$deriv[1:2])
+# check_minmax(my_roots$deriv[3:4])
+```
+
+```{r}
+#allocate space
+cluster_breaks <- data.frame(est_pt = rep(0,length(my_roots$deriv)/2),
+           minmax = rep(0,length(my_roots$deriv)/2))
+
+for(i in 1:(length(my_roots$deriv)/2)){
+  # get 2 pts
+  temp_pair_deriv <- my_roots$deriv[(2*i-1):(2*i)]
+  temp_pair_x <- my_roots$x[(2*i-1):(2*i)]
+  cluster_breaks$est_pt[i] <- mean(temp_pair_x)
+  cluster_breaks$minmax[i] <- check_minmax(temp_pair_deriv)
+}
+
+head(cluster_breaks)
+```
+
+Now we need to add these breaks to the plot and generate cluster labels on the actual data.
+
+```{r}
+cluster_values <- cluster_breaks %>% 
+  filter(minmax == "local_min") %>% 
+  pull(est_pt)
+
+ggplot(data = my_density_curve) +
+  geom_area(data = my_density_curve,
+               aes(x = x,y = y),
+            color = "#5D3BBB",
+            size = 1.5,
+            fill = "#7961BB") +
+  geom_vline(xintercept = cluster_values, color = "red", lty = 2) +
+  theme_light()
+
+
+```
+
+
+Awesome. We located the local minima that were introduced by the larger bandwidth on the `density()` function. Now, this did an awesome job picking up on local minima like the one at ~400, but I am not too impressed with the large range from 300 to 400. Further work will be needed to tune this using the bandwidth to find what the optimal bandwidth is to minimize the variance within a cluster. To finish this off for the project, I'll make a data viz witht the clusters
+
+
+```{r}
+
+my_density_curve$cluster <- rep(0, nrow(my_density_curve))
+
+for(i in 1:nrow(my_density_curve)){
+  x <- my_density_curve$x[i]
+  
+  if((x > cluster_values[1]) & (x < cluster_values[2])){
+    my_density_curve$cluster[i] <- 1
+  } else if((x > cluster_values[2]) & (x < cluster_values[3])){
+    my_density_curve$cluster[i] <- 2
+  } else if((x > cluster_values[3]) & (x < cluster_values[4])){
+    my_density_curve$cluster[i] <- 4
+  } else if((x > cluster_values[4]) & (x < cluster_values[5])){
+    my_density_curve$cluster[i] <- 5
+  } else if((x > cluster_values[5]) & (x < cluster_values[6])){
+    my_density_curve$cluster[i] <- 6
+  } else if((x > cluster_values[6]) & (x < cluster_values[7])){
+    my_density_curve$cluster[i] <- 7
+  } else if((x > cluster_values[7]) & (x < cluster_values[8])){
+    my_density_curve$cluster[i] <- 8
+  } else if((x > cluster_values[8]) & (x < cluster_values[9])){
+    my_density_curve$cluster[i] <- 9
+  } else if(x < cluster_values[1]) {
+    my_density_curve$cluster[i] <- 10
+  } else {
+    my_density_curve$cluster[i] <- 0
+  }
+}
+  
+  
+
+
+ggplot(data = my_density_curve) +
+  geom_area(data = my_density_curve,
+               aes(x = x,y = y, fill= as.factor(cluster)),
+            size = 1.5) +
+  #geom_vline(xintercept = cluster_values, color = "red", lty = 2) +
+  theme_light()
+```
+
+Lastly, I want to look at the variation in the clusters.
+
+```{r}
+my_density_curve %>% 
+  group_by(cluster) %>% 
+  summarize(variance = sd(x)^2)
+
+
+```
+
+# Conclusion
+
+I showed how to take text data from Twitter and join with COVID-19 data from JHU
+to highlight the public's sentiment regarding COVID-19 during two months of the 2020 pandemic. Although only two months of Twitter data were present within the data set, we still saw visible differences in twitter sentiment between July and August using GIS methods.
+
+Following my twitter sentiment, I wanted to begin constructing a framework for me to use in my thesis that uses graph kernels to cluster text documents. By preparing the tweets is a bigram graph representation, and then calculating a graph kernel with `{graphkenrels}`, to get a measure of similarity between two tweets/graphs. I then took an approach that would attempt to cluster the documents/tweets in a single dimension through the use of kernel density estimation (`density()`) and some numerical analysis. This attempt will require further tuning, but demonstrates potential to me. This will prove most useful in my thesis on clustering using graph kernels.
