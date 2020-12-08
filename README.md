@@ -1,16 +1,15 @@
 # Data Visualization and Reproducible Research
 
-> Firstname Lastname. 
+> Levi C. Nicklas. 
 
-Learn more about me in my [GitHub profile page](https://github.com/reiminer)
+Learn more about me in my [GitHub profile page](https://github.com/Levi-Nicklas)
 
 
-The following is a sample of products created during the _"Data Visualization and Reproducible Research"_ course in Fall 2020.
-
+The following is a sample of products created during the _"Data Visualization and Reproducible Research"_ course in Fall 2020 at [Florida Polytechnic University](https://floridapoly.edu/).
 
 ## Project 01
 
-In the `project_01/` folder you can find... _[short description of your revised project goes here]_
+In the `project_01/` folder you can find a small project featuring a textual analysis of the Federalist Papers written by Alexander Hamilton, James Madison, and John Jay.
 
 **Sample data visualization:** 
 
