@@ -30,7 +30,7 @@ In this project, I explored weather in Tampa, near my school.
 
 **Sample data visualization:** 
 
-<img src="https://github.com/Levi-Nicklas/DataVizSamples/blob/main/project-03/unnamed-chunk-12-1.png" width="60%" height="60%">
+<img src="https://github.com/Levi-Nicklas/DataVizSamples/blob/main/project-03/Nicklas_project_03_files/figure-html/unnamed-chunk-12-1.png" width="60%" height="60%">
 
 
 
