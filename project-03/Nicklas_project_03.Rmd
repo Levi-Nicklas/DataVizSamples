@@ -35,6 +35,21 @@ knitr::include_graphics("https://github.com/reisanar/figs/raw/master/tpa_max_tem
 
 Hint: the option `binwidth = 3` was used with the `geom_histogram()` function.
 
+```{r}
+weather_tpa %>% 
+  mutate(month_name = lubridate::month(month, label = T)) %>% 
+  ggplot(aes(x = max_temp, fill = month)) +
+  geom_histogram(binwidth = 3, color = "white") + 
+  scale_fill_viridis_b()+
+  facet_wrap(~month_name) +
+  theme_light()+
+  theme(legend.position = "none", strip.text = element_text(color = "black")) +
+  labs(x = "Maximum Temperatures",
+       y = "Number of Days")
+
+```
+
+
 (b) Recreate the plot below:
 
 ```{r, echo = FALSE, out.width="80%", fig.align='center'}
@@ -43,6 +58,18 @@ knitr::include_graphics("https://github.com/reisanar/figs/raw/master/tpa_max_tem
 
 Hint: check the `kernel` parameter of the `geom_density()` function, and use `bw = 0.5`.
 
+```{r}
+weather_tpa %>% 
+  ggplot(aes(max_temp)) + 
+  geom_density(bw = 0.5, kernel = "epanechnikov",
+               color = "dark grey", fill = "grey",
+               size = 1.2) +
+  theme_minimal() +
+  labs(x = "Maximum Temperature")
+
+```
+
+
 (c) Recreate the chart below:
 
 ```{r, echo = FALSE, out.width="80%", fig.align='center'}
@@ -50,6 +77,20 @@ knitr::include_graphics("https://github.com/reisanar/figs/raw/master/tpa_max_tem
 ```
 
 Hint: default options for `geom_density()` were used. 
+```{r}
+weather_tpa %>% 
+  mutate(month_name = lubridate::month(month, label = T)) %>% 
+  ggplot(aes(x = max_temp, fill = month)) +
+  geom_density(color = "black", alpha = 0.7, size = 1.1) + 
+  scale_fill_viridis_b() +
+  facet_wrap(~month_name) +
+  theme_light()+
+  theme(legend.position = "none", strip.text = element_text(color = "black")) +
+  labs(x = "Maximum Temperatures",
+       y = "")
+
+```
+
 
 (d) Recreate the chart below:
 
@@ -58,6 +99,20 @@ knitr::include_graphics("https://github.com/reisanar/figs/raw/master/tpa_max_tem
 ```
 
 Hint: default options for `geom_density()` were used. 
+
+```{r}
+library(ggridges)
+weather_tpa %>% 
+  mutate(month_name = lubridate::month(month, label = T)) %>% 
+  ggplot(aes(x = max_temp, y = month_name, fill = month_name)) + 
+  geom_density_ridges(size = 1.1) +
+  stat_density_ridges(quantile_lines = TRUE, quantiles = 0.5, size = 1.1) + 
+  scale_fill_manual(values = viridis::viridis(n = 12)) +
+  theme_minimal() +
+  theme(legend.position = "None") + 
+  labs(x = "Maximum Temperature", y = element_blank())
+
+```
 
 (e) Recreate the plot below:
 
@@ -74,7 +129,19 @@ knitr::include_graphics("https://github.com/reisanar/figs/raw/master/tpa_max_tem
 ```
 
 Hint: this uses the `plasma` option (color scale) for the _viridis_ palette.
+```{r}
+library(ggridges)
+weather_tpa %>% 
+  mutate(month_name = lubridate::month(month, label = T)) %>% 
+  ggplot(aes(x = max_temp, y = month_name, fill = month_name)) + 
+  geom_density_ridges(size = 1.1) +
+  stat_density_ridges(quantile_lines = TRUE, quantiles = 0.5, size = 1.1) + 
+  scale_fill_manual(values = viridis::plasma(n = 12)) +
+  theme_minimal() +
+  theme(legend.position = "None") + 
+  labs(x = "Maximum Temperature (Degrees F)", y = element_blank())
 
+```
 
 
 
