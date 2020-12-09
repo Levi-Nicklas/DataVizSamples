@@ -18,20 +18,22 @@ In the `project_01/` folder you can find a small project featuring a textual ana
 
 ## Project 02
 
-In this project, I explored ... _[short description of your revised project goes here]_ Find the code and report in the `project_02/` folder.
+In this project, I explored COVID-19 related tweets from July and August. I try to use kernel density estimation to locatate crude clusters of tweets based on graph kernel similarity measures; local minimums in the estimated density curve are located using discritized calculus. Find the code and report in the `project_02/` folder.
 
 **Sample data visualization:** 
 
+<img src="https://github.com/Levi-Nicklas/DataVizSamples/blob/main/project-02/minimums.png" width="60%" height="60%">
 
 ## Project 03
 
-In this project, I explored ... _[short description of your revised project goes here]_
+In this project, I explored weather in Tampa, near my school. 
 
 **Sample data visualization:** 
 
+<img src="https://github.com/Levi-Nicklas/DataVizSamples/blob/main/project-03/unnamed-chunk-12-1.png" width="60%" height="60%">
 
 
 
 ### Moving Forward
 
-_add here a short reflection on what you learned and what you plan to continue exploring in terms of data visualization, data storytelling, reproducible research, and/or related topics_
+These data samples represent some visualizations I made in the Fall of 2020 in my Data Visualization class. What I mostly learned, I think, is best displayed in my project 1 here, where I try to make simplistic and consistent themed plots. Through the course I did not learn too many new things about `{ggplot2}` (I already loved the pacakge! :smile: ), but what I did learn was how to reduce clutter, use color, use shape, etc to convey my point more effectively through visualization. Those design concepts will benefit me no matter what tools I use!
